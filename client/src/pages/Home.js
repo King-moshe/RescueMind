@@ -4,8 +4,16 @@ import { Link } from "react-router-dom";
 import LoginPopup from "../components/login/LoginPopup";
 import SignUpPopup from "../components/signup/SignUpPopup";
 import { useAuth } from "../context/AouthContext";
+import backgroundImage from '../images/AI.jpg';
 
 export default function Home() {
+  // סגנון לרקע
+  const backgroundStyle = {
+    backgroundImage: `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url(${backgroundImage})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+  };
   const { user, login, logout } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showSignUp, setShowSignUp] = useState(false);
@@ -31,9 +39,9 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col justify-center items-center p-4">
+    <div style={backgroundStyle} className="min-h-screen flex flex-col justify-center items-center p-4">
       <header className="flex justify-center items-center mb-4 w-full max-w-md">
-        <h1 className="text-4xl font-bold text-blue-700">RescueMind</h1>
+        <h1 className="text-4xl font-bold text-white">RescueMind</h1>
       </header>
 
       <main className="flex flex-col items-center">
@@ -54,7 +62,7 @@ export default function Home() {
           </div>
         ) : (
           <>
-            <h2 className="text-2xl font-semibold mb-4">
+            <h2 className="text-2xl font-semibold mb-4 text-white">
               ברוך הבא, {user.name}
             </h2>
             <div className="flex gap-4">
@@ -109,7 +117,7 @@ export default function Home() {
         )}
       </main>
 
-      <footer className="text-center text-gray-500 mt-6">
+      <footer className="text-center text-white mt-6">
         <p>כל הזכויות שמורות &copy; RescueMind 2024</p>
       </footer>
 

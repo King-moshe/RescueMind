@@ -1,186 +1,277 @@
-import React, { useState, useEffect } from 'react';
-import { Line } from 'react-chartjs-2';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
-import { HeartIcon, FireIcon, TrendingUpIcon } from '@heroicons/react/solid';
+import { HeartIcon, FireIcon, TrendingUpIcon, TableIcon, ChartBarIcon, DocumentDownloadIcon } from '@heroicons/react/solid';
+import { CSSTransition, TransitionGroup } from 'react-transition-group';
 import alertSound from '../sounds/sound-alert.mp3';
- 
+import { VitalSignCard } from '../components/monitoring/VitalSignCard';
+import { VitalSignsTable } from '../components/monitoring/VitalSignsTable';
+import { exportToCSV, getAlertThresholds } from '../components/monitoring/monitoringUtils';
+import '../components/monitoring/monitoring.css';
+
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 export default function PatientMonitoring() {
-  const [heartRateData, setHeartRateData] = useState([]);
-  const [oxygenLevelData, setOxygenLevelData] = useState([]);
-  const [systolicData, setSystolicData] = useState([]);
-  const [diastolicData, setDiastolicData] = useState([]);
+  // vitals arrays (latest at end)
+  const [vitals, setVitals] = useState({
+    heartRate: [],
+    oxygenLevel: [],
+    systolic: [],
+    diastolic: [],
+    temperature: [],
+    respiratoryRate: []
+  });
+
   const [alerts, setAlerts] = useState([]);
   const [lastAlert, setLastAlert] = useState('');
-  const alertAudio = new Audio(alertSound);
+  const [viewMode, setViewMode] = useState('charts'); // 'charts' or 'table'
+  const [selectedPatient] = useState('patient1');
   const [startTime] = useState(new Date());
   const [lastUpdateTime, setLastUpdateTime] = useState(new Date());
 
-// Adding variables to save the index history
-  const [heartRateHistory, setHeartRateHistory] = useState([]);
-  const [oxygenLevelHistory, setOxygenLevelHistory] = useState([]);
-  const [systolicHistory, setSystolicHistory] = useState([]);
-  const [diastolicHistory, setDiastolicHistory] = useState([]);
+  const alertAudioRef = useRef(null);
 
-// Variables to store the index history display period
-  const [heartRateTimeframe, setHeartRateTimeframe] = useState('12h');
-  const [oxygenLevelTimeframe, setOxygenLevelTimeframe] = useState('12h');
-  const [bloodPressureTimeframe, setBloodPressureTimeframe] = useState('12h');
+  const [timeframes, setTimeframes] = useState({
+    heartRate: '12h',
+    oxygenLevel: '12h',
+    bloodPressure: '12h'
+  });
 
-// function to play a voice alert
-  const playAlertSound = () => {
-    alertAudio.play();
-  };
+  // initialize audio ref
+  useEffect(() => {
+    alertAudioRef.current = new Audio(alertSound);
+    // allow autoplay on user gesture restrictions by preparing audio
+    alertAudioRef.current.load();
+  }, []);
 
-  const checkAlerts = (heartRate, oxygenLevel, systolic, diastolic) => {
+  const playAlertSound = useCallback(() => {
+    try {
+      alertAudioRef.current && alertAudioRef.current.play();
+    } catch (e) {
+      // ignore autoplay errors
+    }
+  }, []);
+
+  const checkAlerts = useCallback((current) => {
+    const t = getAlertThresholds;
     const newAlerts = [];
-    let alertMessage = '';
 
-    if (heartRate < 60 || heartRate > 100) {
-      alertMessage = `התראה: דופק חורג (${heartRate} BPM)`;
-      newAlerts.push(alertMessage);
+    if (current.heartRate < t.heartRate.min || current.heartRate > t.heartRate.max) {
+      newAlerts.push(`התראה: דופק חורג (${current.heartRate} BPM)`);
     }
-    if (oxygenLevel < 95) {
-      alertMessage = `התראה: רמת חמצן נמוכה (${oxygenLevel}%)`;
-      newAlerts.push(alertMessage);
+    if (current.oxygenLevel < t.oxygenLevel.min) {
+      newAlerts.push(`התראה: רמת חמצן נמוכה (${current.oxygenLevel}%)`);
     }
-    if (systolic < 90 || systolic > 120 || diastolic < 60 || diastolic > 80) {
-      alertMessage = `התראה: לחץ דם חורג (${systolic}/${diastolic})`;
-      newAlerts.push(alertMessage);
+    if (current.systolic < t.systolic.min || current.systolic > t.systolic.max ||
+        current.diastolic < t.diastolic.min || current.diastolic > t.diastolic.max) {
+      newAlerts.push(`התראה: לחץ דם חורג (${current.systolic}/${current.diastolic})`);
     }
 
-    if (newAlerts.length > 0 && alertMessage !== lastAlert) {
-      setLastAlert(alertMessage);
-      playAlertSound();
+    if (newAlerts.length > 0) {
+      const last = newAlerts[newAlerts.length - 1];
+      if (last !== lastAlert) {
+        setLastAlert(last);
+        playAlertSound();
+      }
     }
 
     setAlerts(newAlerts);
-  };
+  }, [lastAlert, playAlertSound]);
 
+  // simulation loop to generate vitals every 5s
   useEffect(() => {
     const interval = setInterval(() => {
-      const newHeartRate = Math.floor(60 + Math.random() * 40);
-      const newOxygenLevel = Math.floor(95 + Math.random() * 5);
-      const newSystolic = 110 + Math.floor(Math.random() * 20);
-      const newDiastolic = 70 + Math.floor(Math.random() * 10);
+      const newVitals = {
+        heartRate: Math.floor(60 + Math.random() * 40),
+        oxygenLevel: Math.floor(95 + Math.random() * 5),
+        systolic: Math.floor(110 + Math.random() * 30),
+        diastolic: Math.floor(70 + Math.random() * 20),
+        temperature: +(36.5 + Math.random()).toFixed(1),
+        respiratoryRate: Math.floor(12 + Math.random() * 8)
+      };
 
-      setHeartRateData(prev => [...prev.slice(-9), newHeartRate]);
-      setOxygenLevelData(prev => [...prev.slice(-9), newOxygenLevel]);
-      setSystolicData(prev => [...prev.slice(-9), newSystolic]);
-      setDiastolicData(prev => [...prev.slice(-9), newDiastolic]);
+      setVitals(prev => ({
+        heartRate: [...prev.heartRate.slice(-119), newVitals.heartRate],
+        oxygenLevel: [...prev.oxygenLevel.slice(-119), newVitals.oxygenLevel],
+        systolic: [...prev.systolic.slice(-119), newVitals.systolic],
+        diastolic: [...prev.diastolic.slice(-119), newVitals.diastolic],
+        temperature: [...prev.temperature.slice(-119), newVitals.temperature],
+        respiratoryRate: [...prev.respiratoryRate.slice(-119), newVitals.respiratoryRate]
+      }));
 
-      setHeartRateHistory(prev => [...prev, { time: new Date(), value: newHeartRate }]);
-      setOxygenLevelHistory(prev => [...prev, { time: new Date(), value: newOxygenLevel }]);
-      setSystolicHistory(prev => [...prev, { time: new Date(), value: newSystolic }]);
-      setDiastolicHistory(prev => [...prev, { time: new Date(), value: newDiastolic }]);
-
-      checkAlerts(newHeartRate, newOxygenLevel, newSystolic, newDiastolic);
+      checkAlerts(newVitals);
       setLastUpdateTime(new Date());
     }, 5000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [checkAlerts]);
 
-  const filterHistory = (history, timeframe) => {
-    const now = new Date();
-    const timeframeInHours = timeframe === '12h' ? 12 : 2;
-    return history.filter(entry => (now - entry.time) / (1000 * 60 * 60) <= timeframeInHours);
+  // helpers
+  const formatDuration = (ms) => {
+    const total = Math.floor(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return h > 0 ? `${h}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}` : `${m}:${s.toString().padStart(2,'0')}`;
   };
 
-  const createHistoryLineData = (history, label, color) => ({
-    labels: history.map(entry => entry.time.toLocaleTimeString()),
-    datasets: [
-      {
-        label,
-        data: history.map(entry => entry.value),
-        borderColor: color,
-        backgroundColor: color.replace('1)', '0.2)'),
-        fill: true,
-      },
-    ],
+  const getChartData = (arr, label, color) => ({
+    labels: arr.map((_, i) => i).reverse(),
+    datasets: [{
+      label,
+      data: [...arr].reverse(),
+      borderColor: color,
+      tension: 0.1,
+      fill: false
+    }]
   });
 
-  const calculateElapsedTime = () => {
-    const now = new Date();
-    const elapsed = Math.floor((now - startTime) / 1000);
-    const minutes = Math.floor(elapsed / 60);
-    const seconds = elapsed % 60;
-    return `${minutes}:${seconds < 10 ? `0${seconds}` : seconds}`;
-  };
+  const toTableRecords = useCallback(() => {
+    const length = Math.max(
+      vitals.heartRate.length,
+      vitals.oxygenLevel.length,
+      vitals.systolic.length
+    );
+    const records = [];
+    for (let i = 0; i < length; i++) {
+      const time = new Date(startTime.getTime() + i * 5000);
+      const hr = vitals.heartRate[i] ?? null;
+      const ox = vitals.oxygenLevel[i] ?? null;
+      const sys = vitals.systolic[i] ?? null;
+      const dia = vitals.diastolic[i] ?? null;
+      const temp = vitals.temperature[i] ?? null;
+      const resp = vitals.respiratoryRate[i] ?? null;
 
-// Color functions depending on the correctness of the indices
-  const getHeartRateColor = (heartRate) => (heartRate < 60 || heartRate > 100) ? 'text-red-500' : 'text-green-500';
-  const getOxygenLevelColor = (oxygenLevel) => (oxygenLevel < 95) ? 'text-red-500' : 'text-green-500';
-  const getBloodPressureColor = (systolic, diastolic) => (systolic < 90 || systolic > 120 || diastolic < 60 || diastolic > 80) ? 'text-red-500' : 'text-green-500';
+      const rec = {
+        time,
+        heartRate: hr,
+        oxygenLevel: ox,
+        systolic: sys,
+        diastolic: dia,
+        temperature: temp,
+        respiratoryRate: resp,
+        heartRateAlert: hr !== null && (hr < getAlertThresholds.heartRate.min || hr > getAlertThresholds.heartRate.max),
+        oxygenAlert: ox !== null && (ox < getAlertThresholds.oxygenLevel.min),
+        bpAlert: (sys !== null && dia !== null) && (sys < getAlertThresholds.systolic.min || sys > getAlertThresholds.systolic.max || dia < getAlertThresholds.diastolic.min || dia > getAlertThresholds.diastolic.max),
+        tempAlert: temp !== null && (temp < getAlertThresholds.temperature.min || temp > getAlertThresholds.temperature.max),
+        respiratoryAlert: resp !== null && (resp < getAlertThresholds.respiratoryRate.min || resp > getAlertThresholds.respiratoryRate.max)
+      };
+      records.push(rec);
+    }
+    return records;
+  }, [vitals, startTime]);
+
+  const handleExport = useCallback(() => {
+    const records = toTableRecords();
+    exportToCSV(records, `vitals-${selectedPatient}-${new Date().toISOString()}.csv`);
+  }, [toTableRecords, selectedPatient]);
+
+  // computed stats intentionally omitted from rendering for now
+
+  // small helpers to compute color class
+  const hrColor = (v) => (v === undefined || v === null) ? 'text-gray-700' : (v < getAlertThresholds.heartRate.min || v > getAlertThresholds.heartRate.max) ? 'text-red-500' : 'text-green-500';
+  const oxColor = (v) => (v === undefined || v === null) ? 'text-gray-700' : (v < getAlertThresholds.oxygenLevel.min) ? 'text-red-500' : 'text-green-500';
+  const bpColor = (s, d) => (s === undefined || d === undefined) ? 'text-gray-700' : ((s < getAlertThresholds.systolic.min || s > getAlertThresholds.systolic.max || d < getAlertThresholds.diastolic.min || d > getAlertThresholds.diastolic.max) ? 'text-red-500':'text-green-500');
+
+  const latestHR = vitals.heartRate[vitals.heartRate.length - 1] ?? 0;
+  const latestOX = vitals.oxygenLevel[vitals.oxygenLevel.length - 1] ?? 0;
+  const latestSYS = vitals.systolic[vitals.systolic.length - 1] ?? 0;
+  const latestDIA = vitals.diastolic[vitals.diastolic.length - 1] ?? 0;
+
+  const tableRecords = toTableRecords();
 
   return (
-    <div className="text-center p-6 bg-gray-100 min-h-screen">
-      <h2 className="text-2xl font-semibold mb-4">ניטור פצועים</h2>
+    <div className="text-center p-6 bg-gradient-to-b from-gray-50 to-gray-100 min-h-screen">
+      <div className="max-w-7xl mx-auto">
+        <header className="bg-white rounded-lg shadow-lg p-4 mb-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-semibold text-gray-800">ניטור פצועים</h2>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setViewMode('charts')}
+                className={`px-4 py-2 rounded-lg transition-colors ${viewMode === 'charts' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                <ChartBarIcon className="h-5 w-5 inline-block ml-2" />
+                גרפים
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`px-4 py-2 rounded-lg transition-colors ${viewMode === 'table' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                <TableIcon className="h-5 w-5 inline-block ml-2" />
+                טבלה
+              </button>
+              <button onClick={handleExport} className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+                <DocumentDownloadIcon className="h-5 w-5 inline-block ml-2" />
+                ייצוא נתונים
+              </button>
+            </div>
+          </div>
 
-      {alerts.length > 0 && (
-        <div className="bg-red-200 text-red-800 p-4 mb-4 rounded">
-          {alerts.map((alert, index) => (
-            <p key={index}>{alert}</p>
-          ))}
-        </div>
-      )}
+          <div className="mt-4 flex justify-between items-center text-sm text-gray-600">
+            <div>זמן מאז תחילת הניטור: <span className="font-bold">{formatDuration(new Date() - startTime)}</span></div>
+            <div>עדכון אחרון: <span className="font-bold">{lastUpdateTime.toLocaleTimeString()}</span></div>
+          </div>
+        </header>
 
-      <div className="flex flex-col items-center mb-6">
-        <p>זמן מאז תחילת הניטור: <span className="font-bold">{calculateElapsedTime()}</span></p>
-        <p>זמן עדכון אחרון: <span className="font-bold">{lastUpdateTime.toLocaleTimeString()}</span></p>
-      </div>
+        <TransitionGroup>
+          {alerts.length > 0 && (
+            <CSSTransition classNames="alert" timeout={300}>
+              <div className="bg-red-100 border-l-4 border-red-500 rounded-lg p-4 mb-6">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="mr-3">
+                    {alerts.map((alert, index) => (
+                      <p key={index} className="text-sm text-red-800">{alert}</p>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CSSTransition>
+          )}
+        </TransitionGroup>
 
-      <div className="flex flex-wrap justify-around gap-4">
-        {/* Heart rate graph */}
-        <div className="w-full md:w-1/3 bg-white p-4 rounded-lg shadow-md">
-          <div className="flex items-center mb-2">
-            <HeartIcon className="w-6 h-6 text-red-500 mr-2" />
-            <h3 className="text-lg font-medium text-gray-700">היסטוריית דופק</h3>
-          </div>
-          <p className={`text-2xl font-bold mb-2 ${getHeartRateColor(heartRateData[heartRateData.length - 1])}`}>
-            {heartRateData[heartRateData.length - 1]} BPM
-          </p>
-          <Line data={createHistoryLineData(filterHistory(heartRateHistory, heartRateTimeframe), 'Heart Rate History (BPM)', 'rgba(255, 99, 132, 1)')} />
-          <div className="flex justify-center mt-2">
-            <button onClick={() => setHeartRateTimeframe('12h')} className="mx-2 p-2 bg-blue-200 rounded">12 שעות</button>
-            <button onClick={() => setHeartRateTimeframe('2h')} className="mx-2 p-2 bg-blue-200 rounded">שעתיים</button>
-          </div>
-        </div>
+        {viewMode === 'charts' ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <VitalSignCard
+              icon={<HeartIcon className="w-6 h-6 text-red-500" />}
+              title="דופק"
+              value={`${latestHR} BPM`}
+              color={hrColor(latestHR)}
+              data={getChartData(vitals.heartRate, 'דופק', 'rgba(255,99,132,1)')}
+              timeframe={timeframes.heartRate}
+              onTimeframeChange={(tf) => setTimeframes(prev => ({ ...prev, heartRate: tf }))}
+              onExportData={handleExport}
+            />
 
-        {/* Graph oxygen levels */}
-        <div className="w-full md:w-1/3 bg-white p-4 rounded-lg shadow-md">
-          <div className="flex items-center mb-2">
-            <FireIcon className="w-6 h-6 text-green-500 mr-2" />
-            <h3 className="text-lg font-medium text-gray-700">היסטוריית רמות חמצן</h3>
-          </div>
-          <p className={`text-2xl font-bold mb-2 ${getOxygenLevelColor(oxygenLevelData[oxygenLevelData.length - 1])}`}>
-            {oxygenLevelData[oxygenLevelData.length - 1]}%
-          </p>
-          <Line data={createHistoryLineData(filterHistory(oxygenLevelHistory, oxygenLevelTimeframe), 'Oxygen Level History (%)', 'rgba(75, 192, 192, 1)')} />
-          <div className="flex justify-center mt-2">
-            <button onClick={() => setOxygenLevelTimeframe('12h')} className="mx-2 p-2 bg-blue-200 rounded">12 שעות</button>
-            <button onClick={() => setOxygenLevelTimeframe('2h')} className="mx-2 p-2 bg-blue-200 rounded">שעתיים</button>
-          </div>
-        </div>
+            <VitalSignCard
+              icon={<FireIcon className="w-6 h-6 text-green-500" />}
+              title="רמת חמצן"
+              value={`${latestOX}%`}
+              color={oxColor(latestOX)}
+              data={getChartData(vitals.oxygenLevel, 'חמצן', 'rgba(75,192,192,1)')}
+              timeframe={timeframes.oxygenLevel}
+              onTimeframeChange={(tf) => setTimeframes(prev => ({ ...prev, oxygenLevel: tf }))}
+              onExportData={handleExport}
+            />
 
-        {/* Blood pressure graph */}
-        <div className="w-full md:w-1/3 bg-white p-4 rounded-lg shadow-md">
-          <div className="flex items-center mb-2">
-            <TrendingUpIcon className="w-6 h-6 text-blue-500 mr-2" />
-            <h3 className="text-lg font-medium text-gray-700">לחץ דם</h3>
+            <VitalSignCard
+              icon={<TrendingUpIcon className="w-6 h-6 text-blue-500" />}
+              title="לחץ דם"
+              value={`${latestSYS}/${latestDIA}`}
+              color={bpColor(latestSYS, latestDIA)}
+              data={getChartData(vitals.systolic, 'סיסטולי', 'rgba(54,162,235,1)')}
+              timeframe={timeframes.bloodPressure}
+              onTimeframeChange={(tf) => setTimeframes(prev => ({ ...prev, bloodPressure: tf }))}
+              onExportData={handleExport}
+            />
           </div>
-          <p className={`text-2xl font-bold mb-2 ${getBloodPressureColor(systolicData[systolicData.length - 1], diastolicData[diastolicData.length - 1])}`}>
-            {systolicData[systolicData.length - 1]}/{diastolicData[diastolicData.length - 1]}
-          </p>
-          <Line data={createHistoryLineData(filterHistory(systolicHistory, bloodPressureTimeframe), 'Systolic (mmHg)', 'rgba(54, 162, 235, 1)')} />
-          <Line data={createHistoryLineData(filterHistory(diastolicHistory, bloodPressureTimeframe), 'Diastolic (mmHg)', 'rgba(153, 102, 255, 1)')} />
-          <div className="flex justify-center mt-2">
-            <button onClick={() => setBloodPressureTimeframe('12h')} className="mx-2 p-2 bg-blue-200 rounded">12 שעות</button>
-            <button onClick={() => setBloodPressureTimeframe('2h')} className="mx-2 p-2 bg-blue-200 rounded">שעתיים</button>
-          </div>
-        </div>
+        ) : (
+          <VitalSignsTable data={tableRecords} timeframe={timeframes} />
+        )}
       </div>
     </div>
   );
 }
+
